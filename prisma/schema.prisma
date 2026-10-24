@@ -1,0 +1,192 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
+enum Category {
+  FOOD
+  TRAVEL
+  RENT
+  GROCERIES
+  UTILITIES
+  ENTERTAINMENT
+  SHOPPING
+  HEALTH
+  OTHER
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENT
+  SHARES
+}
+
+enum ActivityType {
+  EXPENSE_CREATED
+  EXPENSE_UPDATED
+  EXPENSE_DELETED
+  SETTLEMENT_CREATED
+  MEMBER_JOINED
+  MEMBER_REMOVED
+  GROUP_UPDATED
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  memberships  GroupMember[]
+  createdGroups Group[]       @relation("CreatedGroups")
+  expensesPaid Expense[]     @relation("ExpensesPaid")
+  expensesCreated Expense[]  @relation("ExpensesCreated")
+  splits       ExpenseSplit[]
+  settlementsSent Settlement[] @relation("SettlementsSent")
+  settlementsReceived Settlement[] @relation("SettlementsReceived")
+  invitesSent  GroupInvite[] @relation("InvitedByUser")
+  activities   Activity[]
+
+  @@index([email])
+}
+
+model Group {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  emoji       String?
+  createdById String
+  createdBy   User          @relation("CreatedGroups", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  members     GroupMember[]
+  invites     GroupInvite[]
+  expenses    Expense[]
+  settlements Settlement[]
+  activities  Activity[]
+
+  @@index([createdById])
+}
+
+model GroupMember {
+  id        String   @id @default(cuid())
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @default(MEMBER)
+  joinedAt  DateTime @default(now())
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+model GroupInvite {
+  id          String       @id @default(cuid())
+  groupId     String
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  email       String?
+  token       String       @unique
+  invitedById String
+  invitedBy   User         @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Cascade)
+  status      InviteStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+
+  @@index([groupId])
+  @@index([email])
+  @@index([token])
+}
+
+model Expense {
+  id          String       @id @default(cuid())
+  groupId     String
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  description String
+  amount      Int          // Amount in paise (integer)
+  currency    String       @default("INR")
+  date        DateTime     @default(now())
+  category    Category     @default(OTHER)
+  receiptUrl  String?
+  paidById    String
+  paidBy      User         @relation("ExpensesPaid", fields: [paidById], references: [id], onDelete: Restrict)
+  splitType   SplitType    @default(EQUAL)
+  createdById String
+  createdBy   User         @relation("ExpensesCreated", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?    // Soft delete
+
+  splits      ExpenseSplit[]
+
+  @@index([groupId])
+  @@index([groupId, date])
+  @@index([paidById])
+  @@index([createdById])
+}
+
+model ExpenseSplit {
+  id        String   @id @default(cuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  amount    Int      // Share in paise (integer)
+  meta      Json?    // Optional JSON metadata for percentage / shares input
+
+  @@unique([expenseId, userId])
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Settlement {
+  id         String   @id @default(cuid())
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUserId String
+  fromUser   User     @relation("SettlementsSent", fields: [fromUserId], references: [id], onDelete: Restrict)
+  toUserId   String
+  toUser     User     @relation("SettlementsReceived", fields: [toUserId], references: [id], onDelete: Restrict)
+  amount     Int      // Amount in paise
+  date       DateTime @default(now())
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([groupId])
+  @@index([fromUserId])
+  @@index([toUserId])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  groupId   String
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actorId   String
+  actor     User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  payload   Json
+  createdAt DateTime     @default(now())
+
+  @@index([groupId])
+  @@index([actorId])
+  @@index([groupId, createdAt])
+}
